@@ -3,6 +3,7 @@
   "scripts": {
     "dev": "TMPDIR=/tmp nuxt dev",
     "build": "nuxt build --extends docus",
+    "generate": "nuxt generate --extends docus",
     "start": "nuxt dev"
   },
   "dependencies": {

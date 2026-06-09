@@ -180,7 +180,12 @@ async function executeStrategy(
   servers: Server[],
   version: string,
   strategy: DeployStrategy,
-  syncConfig?: { source: string; exclude: string[]; force?: boolean },
+  syncConfig?: {
+    source: string;
+    exclude: string[];
+    include?: string[];
+    force?: boolean;
+  },
 ): Promise<ExecutionResult[]> {
   const allResults: ExecutionResult[] = [];
   if (strategy === "rolling") {
@@ -238,7 +243,12 @@ async function deployToServers(
   pool: SSHPool,
   workloadName: string,
   version: string,
-  syncConfig?: { source: string; exclude: string[]; force?: boolean },
+  syncConfig?: {
+    source: string;
+    exclude: string[];
+    include?: string[];
+    force?: boolean;
+  },
   driver?: string,
   startCmd?: string,
   ports?: number[],
@@ -301,12 +311,24 @@ async function deployToServers(
     }
   }
   const userExcludes = syncConfig?.exclude ?? [];
+  const userIncludes = syncConfig?.include ?? [];
   const excludeSet = new Set([
     ...defaultExcludes,
     ...gitignorePatterns,
     ...userExcludes,
   ]);
-  const excludeList = [...excludeSet];
+
+  // Filter out patterns that are explicitly included
+  const isIncluded = (pattern: string): boolean => {
+    return userIncludes.some((inc) => {
+      if (pattern === inc) return true;
+      if (pattern === `${inc}/`) return true;
+      if (pattern.startsWith(`${inc}/`)) return true;
+      return false;
+    });
+  };
+
+  const excludeList = [...excludeSet].filter((e) => !isIncluded(e));
   const excludes = excludeList.map((e) => `--exclude='${e}'`).join(" ");
   const hashFile = join(cwd, ".dnx", "hash", `sync-${workloadName}`);
   let currentHash = "";

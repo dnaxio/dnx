@@ -27,9 +27,7 @@ node-gyp.pkg-path = "node-gyp"
 ## -------------------------------------------------------------------
 [hook]
  on-activate = '''
-   bun i
-   # start bun dev
-   bun nuxt dev
+ bunx serve .output/public
  '''
 
 

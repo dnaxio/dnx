@@ -105,6 +105,7 @@ export const WorkloadSchema = z.object({
       exclude: z
         .array(z.string())
         .default([".dnax", ".devbox", "node_modules", ".git", ".cursor"]),
+      include: z.array(z.string()).default([]),
       force: z.boolean().default(false),
     })
     .default({}),
