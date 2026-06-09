@@ -1,0 +1,30 @@
+# dnx.yaml — DNX Deploy Configuration
+version: "1"
+name: "dnx"
+
+deploy:
+  tag: v1.0.2
+  strategy: rolling
+
+environments:
+  production:
+    servers:
+      - name: dnax-c1
+        host: $PROD_HOST
+        user: $PROD_USER
+
+workloads:
+  - name: dnx-doc
+    type: web # web | api | database | cache | worker | cron | other
+    driver: flox
+    sync:
+      source: ./docs
+      force: true
+    ports:
+      - "4000:3000"
+
+proxy:
+  routes:
+    - domain: dnx.dnax.io:80
+      target: 127.0.0.1
+      port: 4000

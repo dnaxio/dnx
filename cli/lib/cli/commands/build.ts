@@ -5,16 +5,16 @@ import { loadConfig } from "../../config/loader.ts";
 
 export class BuildCommand extends BaseCommand {
   name = "build";
-  description = "Build une application (flox)";
-  args = [{ name: "app", description: "Nom de l'application", required: true }];
+  description = "Build an application (flox)";
+  args = [{ name: "app", description: "Application name", required: true }];
   options = [
     {
       flags: "--env <env>",
-      description: "Environnement cible",
+      description: "Target environment",
       defaultValue: "staging",
     },
-    { flags: "--no-cache", description: "Ignore le cache" },
-    { flags: "--skip-tests", description: "Sauter les tests" },
+    { flags: "--no-cache", description: "Ignore cache" },
+    { flags: "--skip-tests", description: "Skip tests" },
   ];
 
   async run(
@@ -28,7 +28,7 @@ export class BuildCommand extends BaseCommand {
     }
 
     if (!isFloxInstalled()) {
-      logger.error("flox n'est pas installé. https://flox.dev");
+      logger.error("flox is not installed. https://flox.dev");
       process.exit(1);
     }
 
@@ -37,21 +37,21 @@ export class BuildCommand extends BaseCommand {
     const app = config.workloads.find((a) => a.name === appName);
 
     if (!app) {
-      logger.error(`Application "${appName}" introuvable.`);
+      logger.error(`Application "${appName}" not found.`);
       process.exit(1);
     }
 
     logger.title(`Build : ${appName}`);
 
     // Execute build steps
-    const steps = app.build?.steps ?? [];
+    const steps = app.build?.local?.steps ?? [];
     if (steps.length === 0) {
-      logger.info("Aucune étape de build configurée.");
+      logger.info("No build steps configured.");
       return;
     }
 
     for (const step of steps) {
-      const spin = spinner(`Exécution : ${step.run}`);
+      const spin = spinner(`Running: ${step.run}`);
       try {
         const result = await activateAndRun(ctx.cwd, step.run, step.env);
         if (result.exitCode === 0) {
@@ -67,6 +67,6 @@ export class BuildCommand extends BaseCommand {
       }
     }
 
-    logger.success(`Build terminé : ${appName}`);
+    logger.success(`Build completed: ${appName}`);
   }
 }

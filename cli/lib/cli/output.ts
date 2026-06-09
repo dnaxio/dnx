@@ -2,6 +2,7 @@ import { consola } from "consola";
 import ora, { type Ora } from "ora";
 import Table from "cli-table3";
 import chalk from "chalk";
+import "@colors/colors";
 
 export type LogLevel = "debug" | "info" | "warn" | "error" | "success";
 
@@ -24,22 +25,22 @@ export const logger = {
     consola.warn(args.join(" "));
   },
   error(...args: unknown[]) {
-    consola.error(args.join(" "));
+    consola.error(args.join(" ").red);
   },
   success(...args: unknown[]) {
-    consola.success(args.join(" "));
+    consola.success(args.join(" ").green);
   },
   title(text: string) {
     consola.box(text);
   },
   section(text: string) {
-    console.log(`\n  ${text}`);
+    console.log(`${text}`.gray);
   },
   keyValue(key: string, value: string) {
-    console.log(`    ${key}: ${value}`);
+    console.log(`${key}: ${value}`.cyan);
   },
   step(n: number, total: number, text: string) {
-    console.log(`[${n}/${total}] ${text}`);
+    console.log(`[${n}/${total}] ${text}`.gray);
   },
   table(rows: string[][]) {
     if (rows.length <= 1) return;
@@ -84,6 +85,9 @@ export const icons = {
   stopped: "🔴",
 };
 
-export function spinner(text: string): Ora {
-  return ora({ text, spinner: "dots" });
+export function spinner(
+  text: string,
+  opts?: { stream?: NodeJS.WritableStream },
+): Ora {
+  return ora({ text, spinner: "dots", ...opts });
 }

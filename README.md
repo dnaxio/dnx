@@ -13,8 +13,32 @@ bun install -g @dnax/dnx
 ```bash
 dnx init --name my-app
 # edit dnx.yaml with your servers
+# create .env with your variables:
+#   PROD_HOST=my-server.example.com
+#   STAGING_HOST=staging.example.com
 dnx deploy web --env staging --tag v1
+# or deploy all workloads:
+# dnx deploy --all --env staging --tag v1
 ```
+
+## .env Files (automatic)
+
+DNX automatically loads `.env` files. Create a `.env` file at your project root:
+
+```bash
+# .env
+PROD_HOST=my-server.example.com
+STAGING_HOST=staging.example.com
+```
+
+| File | Purpose |
+|------|---------|
+| `.env` | Shared variables (commit to git) |
+| `.env.production` | Production-specific overrides |
+| `.env.staging` | Staging-specific overrides |
+| `.env.local` | Local overrides (never commit) |
+
+Shell environment variables always take precedence over `.env` files.
 
 ## dnx.yaml
 
@@ -32,6 +56,13 @@ workloads:
   - name: web
     type: web
     driver: flox          # flox | devbox | docker | podman
+    build:
+      local:
+        steps:
+          - run: npm run build
+      server:
+        steps:
+          - run: npm install
     ports: [3000]
     env:
       NODE_ENV: "production"
@@ -53,7 +84,10 @@ proxy:
 | Command | Description |
 |---------|-------------|
 | `dnx init` | Create a new dnx.yaml |
-| `dnx deploy <wl> --tag <v>` | Deploy a workload |
+| `dnx deploy <wl> --tag <v>` | Deploy a workload to all envs |
+| `dnx deploy <wl> --tag <v> --env <e>` | Deploy to specific env(s) |
+| `dnx deploy <wl> --tag <v> --env prod,stg` | Deploy to multiple envs |
+| `dnx deploy --all --tag <v>` | Deploy all workloads to all envs |
 | `dnx status` | Show all workloads |
 | `dnx logs <wl> --follow` | Stream workload logs |
 | `dnx workload start/stop/restart <wl>` | Lifecycle management |

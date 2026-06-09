@@ -1,6 +1,6 @@
 export default defineNuxtConfig({
   experimental: {
-    viteEnvironmentApi: false,
+    viteEnvironmentApi: true,
   },
   extends: ["docus"],
   modules: ["@comark/nuxt", "@nuxtjs/i18n"],

@@ -86,9 +86,7 @@ export function generateCaddyfile(opts: CaddyfileOptions): string {
 
     // Rate limiting
     if (route.rateLimit) {
-      lines.push(
-        `  rate_limit {`
-      );
+      lines.push(`  rate_limit {`);
       lines.push(`    rate ${route.rateLimit.rate}`);
       lines.push(`    burst ${route.rateLimit.burst}`);
       lines.push(`    period ${route.rateLimit.period}`);
@@ -108,7 +106,7 @@ export function generateCaddyfile(opts: CaddyfileOptions): string {
 export function generateSimpleCaddyfile(
   domain: string,
   upstream: string,
-  email?: string
+  email?: string,
 ): string {
   return generateCaddyfile({
     email,
@@ -133,7 +131,13 @@ export function parseCaddyfile(content: string): CaddyRoute[] {
   for (const block of blocks) {
     const lines = block.trim().split("\n");
     const domainLine = lines[0]?.trim();
-    if (!domainLine || domainLine.startsWith("#") || domainLine === "{") continue;
+    if (
+      !domainLine ||
+      domainLine.startsWith("#") ||
+      domainLine === "{" ||
+      domainLine === "}"
+    )
+      continue;
 
     const domain = domainLine.replace(/\s*\{.*/, "").trim();
     const route: CaddyRoute = { domain, target: "", port: 0 };
@@ -160,4 +164,62 @@ export function parseCaddyfile(content: string): CaddyRoute[] {
   }
 
   return routes;
+}
+
+/**
+ * Extract global options block from a Caddyfile (email, auto_https, etc.).
+ */
+export function extractGlobalOptions(content: string): {
+  email?: string;
+  autoSSL?: boolean;
+} {
+  const globalBlock = content.match(/^\{\n([\s\S]*?)^\}/m);
+  if (!globalBlock) return {};
+  const body = globalBlock[1]!;
+  const emailMatch = body.match(/email\s+(\S+)/);
+  const autoHttpsMatch = body.match(/auto_https\s+(\w+)/);
+  return {
+    email: emailMatch?.[1],
+    autoSSL: autoHttpsMatch ? autoHttpsMatch[1] !== "off" : undefined,
+  };
+}
+
+/**
+ * Strip port from a domain for deduplication purposes.
+ */
+function domainKey(domain: string): string {
+  return domain.replace(/:\d+$/, "");
+}
+
+/**
+ * Merge new routes into an existing Caddyfile, preserving other routes.
+ * Existing routes with the same domain (ignoring port) are replaced by new ones.
+ */
+export function mergeCaddyfile(
+  existingContent: string,
+  newRoutes: CaddyRoute[],
+  opts: { email?: string; autoSSL?: boolean },
+): string {
+  const existingRoutes = parseCaddyfile(existingContent);
+  const existingGlobals = extractGlobalOptions(existingContent);
+
+  // Use new globals if provided, otherwise keep existing
+  const email = opts.email ?? existingGlobals.email;
+  const autoSSL = opts.autoSSL ?? existingGlobals.autoSSL ?? true;
+
+  // Merge: new routes replace existing ones with same domain (port ignored)
+  const mergedRoutes: CaddyRoute[] = [];
+  const newDomainKeys = new Set(newRoutes.map((r) => domainKey(r.domain)));
+
+  // Keep existing routes for domains not in the new set
+  for (const r of existingRoutes) {
+    if (!newDomainKeys.has(domainKey(r.domain))) {
+      mergedRoutes.push(r);
+    }
+  }
+
+  // Add all new routes
+  mergedRoutes.push(...newRoutes);
+
+  return generateCaddyfile({ email, autoSSL, routes: mergedRoutes });
 }

@@ -7,13 +7,18 @@ const INIT_TEMPLATE = `# dnx.yaml — DNX Deploy Configuration
 version: "1"
 name: "my-project"
 
+# Default deploy settings (optional — overrides CLI flags)
+deploy:
+  tag: v1
+  strategy: rolling
+
 environments:
   staging:
     servers:
       - name: staging-1
         host: $STAGING_HOST
         user: $USER
-        # password: $SSH_PASS   # mot de passe SSH (optionnel)
+        # password: $SSH_PASS   # SSH password (optional)
         # key_path: ~/.ssh/id_ed25519
 
   production:
@@ -27,6 +32,13 @@ workloads:
     type: web              # web | api | database | cache | worker | cron | other
     driver: flox
     # image: nginx:alpine  # optional OCI image
+    # build:               # Build steps (optional)
+    #   local:
+    #     steps:
+    #       - run: npm run build
+    #   server:
+    #     steps:
+    #       - run: npm install
     ports:
       - 3000
     env:
@@ -68,16 +80,20 @@ export class InitCommand extends BaseCommand {
     const spin = spinner("Creating dnx.yaml...");
     fs.writeFileSync(targetPath, content, "utf-8");
 
-    // Add .dnx/ to .gitignore
+    // Add .dnx/ and .env files to .gitignore
     const gitignorePath = path.join(cwd, ".gitignore");
-    const gitignoreEntry = ".dnx/";
+    const gitignoreEntries = [".dnx/", ".env", ".env.local", ".env.*"];
     if (fs.existsSync(gitignorePath)) {
       const gitignore = fs.readFileSync(gitignorePath, "utf-8");
-      if (!gitignore.includes(gitignoreEntry)) {
-        fs.appendFileSync(gitignorePath, `\n# DNX\n${gitignoreEntry}\n`);
+      const missing = gitignoreEntries.filter((e) => !gitignore.includes(e));
+      if (missing.length > 0) {
+        fs.appendFileSync(gitignorePath, `\n# DNX\n${missing.join("\n")}\n`);
       }
     } else {
-      fs.writeFileSync(gitignorePath, `# DNX\n${gitignoreEntry}\n`);
+      fs.writeFileSync(
+        gitignorePath,
+        `# DNX\n${gitignoreEntries.join("\n")}\n`,
+      );
     }
 
     spin.succeed("dnx.yaml created!");

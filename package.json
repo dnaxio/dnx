@@ -1,0 +1,16 @@
+{
+  "name": "dnx",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "engines": {
+    "bun": ">=1.3.12"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

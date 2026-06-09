@@ -2,7 +2,11 @@ import { BaseCommand, type CommandContext } from "../command.ts";
 import { logger, spinner } from "../output.ts";
 import { loadConfig } from "../../config/loader.ts";
 import { SSHConnection } from "../../ssh/connection.ts";
-import { installAgent, uninstallAgent, checkAgentStatus } from "../../agent/installer.ts";
+import {
+  installAgent,
+  uninstallAgent,
+  checkAgentStatus,
+} from "../../agent/installer.ts";
 
 function getConn(host: string, port = 22, user = "root"): SSHConnection {
   return new SSHConnection({ host, port, username: user });
@@ -10,18 +14,30 @@ function getConn(host: string, port = 22, user = "root"): SSHConnection {
 
 export class AgentInstallCommand extends BaseCommand {
   name = "install";
-  description = "Installe l'agent dnxd sur un serveur";
-  args = [{ name: "server", description: "Nom du serveur", required: true }];
+  description = "Install the dnxd agent on a server";
+  args = [{ name: "server", description: "Server name", required: true }];
   options = [
-    { flags: "-f, --force", description: "Réinstalle même si déjà présent" },
+    { flags: "-f, --force", description: "Reinstall even if already present" },
   ];
 
-  async run(ctx: CommandContext, serverName?: string, opts?: Record<string, unknown>) {
-    if (!serverName) { logger.error("Usage : dnx agent install <server>"); process.exit(1); }
+  async run(
+    ctx: CommandContext,
+    serverName?: string,
+    opts?: Record<string, unknown>,
+  ) {
+    if (!serverName) {
+      logger.error("Usage : dnx agent install <server>");
+      process.exit(1);
+    }
     const { config } = loadConfig(ctx.cwd);
-    const allServers = Object.values(config.environments).flatMap((e) => e.servers);
+    const allServers = Object.values(config.environments).flatMap(
+      (e) => e.servers,
+    );
     const srv = allServers.find((s) => s.name === serverName);
-    if (!srv) { logger.error(`Serveur "${serverName}" introuvable.`); process.exit(1); }
+    if (!srv) {
+      logger.error(`Server "${serverName}" not found.`);
+      process.exit(1);
+    }
 
     const conn = getConn(srv.host, srv.port ?? 22, srv.user ?? "root");
     try {
@@ -40,14 +56,22 @@ export class AgentInstallCommand extends BaseCommand {
 
 export class AgentUninstallCommand extends BaseCommand {
   name = "uninstall";
-  description = "Désinstalle l'agent dnxd d'un serveur";
-  args = [{ name: "server", description: "Nom du serveur", required: true }];
+  description = "Uninstall the dnxd agent from a server";
+  args = [{ name: "server", description: "Server name", required: true }];
   async run(ctx: CommandContext, serverName?: string) {
-    if (!serverName) { logger.error("Usage : dnx agent uninstall <server>"); process.exit(1); }
+    if (!serverName) {
+      logger.error("Usage : dnx agent uninstall <server>");
+      process.exit(1);
+    }
     const { config } = loadConfig(ctx.cwd);
-    const allServers = Object.values(config.environments).flatMap((e) => e.servers);
+    const allServers = Object.values(config.environments).flatMap(
+      (e) => e.servers,
+    );
     const srv = allServers.find((s) => s.name === serverName);
-    if (!srv) { logger.error(`Serveur "${serverName}" introuvable.`); process.exit(1); }
+    if (!srv) {
+      logger.error(`Server "${serverName}" not found.`);
+      process.exit(1);
+    }
 
     const conn = getConn(srv.host, srv.port ?? 22, srv.user ?? "root");
     try {
@@ -63,17 +87,21 @@ export class AgentUninstallCommand extends BaseCommand {
 
 export class AgentStatusCommand extends BaseCommand {
   name = "status";
-  description = "Vérifie le statut de l'agent dnxd";
-  args = [{ name: "server", description: "Nom du serveur (optionnel)" }];
+  description = "Check the dnxd agent status";
+  args = [{ name: "server", description: "Server name (optional)" }];
   async run(ctx: CommandContext, serverName?: string) {
     const { config } = loadConfig(ctx.cwd);
-    const allServers = Object.values(config.environments).flatMap((e) => e.servers);
+    const allServers = Object.values(config.environments).flatMap(
+      (e) => e.servers,
+    );
     const targets = serverName
       ? allServers.filter((s) => s.name === serverName)
       : allServers;
 
     if (targets.length === 0) {
-      logger.error(serverName ? `Serveur "${serverName}" introuvable.` : "Aucun serveur.");
+      logger.error(
+        serverName ? `Server "${serverName}" not found.` : "No servers.",
+      );
       process.exit(1);
     }
 
@@ -86,12 +114,14 @@ export class AgentStatusCommand extends BaseCommand {
           console.log(JSON.stringify({ server: srv.name, ...status }));
         } else {
           const state = status.installed
-            ? status.running ? "RUNNING" : "STOPPED"
+            ? status.running
+              ? "RUNNING"
+              : "STOPPED"
             : "NOT_INSTALLED";
           logger.keyValue(srv.name, state);
         }
       } catch (err) {
-        logger.keyValue(srv.name, `ERREUR: ${(err as Error).message}`);
+        logger.keyValue(srv.name, `ERROR: ${(err as Error).message}`);
       } finally {
         await conn.close();
       }
@@ -101,7 +131,7 @@ export class AgentStatusCommand extends BaseCommand {
 
 export class AgentCommand extends BaseCommand {
   name = "agent";
-  description = "Gère l'agent distant dnxd";
+  description = "Manage the remote dnxd agent";
   options = [];
   subcommands = [
     new AgentInstallCommand(),

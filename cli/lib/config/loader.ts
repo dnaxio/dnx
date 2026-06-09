@@ -9,6 +9,7 @@ import {
   type ResolverContext,
 } from "./resolver.ts";
 import { logger } from "../cli/output.ts";
+import { loadEnvFiles } from "../utils/env.ts";
 
 export interface LoadResult {
   config: DnxConfig;
@@ -20,6 +21,11 @@ export interface LoadResult {
  * Checks dnx.yaml first, then .dnax/dnx.yaml as fallback.
  */
 export function loadConfig(cwd: string, env?: string): LoadResult {
+  // Load env-specific .env files now that we know the environment
+  if (env) {
+    loadEnvFiles(cwd, env);
+  }
+
   const candidates = ["dnx.yaml", "dnx.yml", ".dnax/dnx.yaml", ".dnax/dnx.yml"];
   let basePath: string | null = null;
 
@@ -89,6 +95,11 @@ export function loadResolvedConfig(
   env?: string,
   ctx?: Partial<ResolverContext>,
 ): DnxConfig {
+  // Load env-specific .env files now that we know the environment
+  if (env) {
+    loadEnvFiles(cwd, env);
+  }
+
   const { config } = loadConfig(cwd, env);
 
   const resolverCtx: ResolverContext = {

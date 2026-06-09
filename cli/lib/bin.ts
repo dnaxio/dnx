@@ -1,5 +1,8 @@
 #!/usr/bin/env bun
 
+import "@colors/colors";
+
+import { loadEnvFiles } from "./utils/env.ts";
 import { DnxProgram } from "./cli/program.ts";
 import { InitCommand } from "./cli/commands/init.ts";
 import { VersionCommand } from "./cli/commands/version.ts";
@@ -40,5 +43,8 @@ program.register([
   new LogsCommand(),
   new VersionCommand(),
 ]);
+
+// Load .env and .env.local at startup (env-specific files loaded when env is known)
+loadEnvFiles(process.cwd());
 
 program.run();

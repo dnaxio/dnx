@@ -1,5 +1,6 @@
 .env
-
+.env.*
+.output
 # DNX
 .dnx/
 .dnax/
@@ -9,16 +10,12 @@ node_modules/
 .agents
 memo
 AGENTS.md
-
+.cursor
 # Build output
 dist/
 .cli/
 
-# Devbox
-.devbox/
 
-# Flox
-.flox/
 .run/
 
 # IDE
@@ -31,3 +28,5 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+*.lockb
+*.lock

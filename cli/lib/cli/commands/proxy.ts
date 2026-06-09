@@ -1,14 +1,6 @@
 import { BaseCommand, type CommandContext } from "../command.ts";
 import { logger, spinner } from "../output.ts";
-import { loadConfig } from "../../config/loader.ts";
-import { loadKey } from "../../secrets/keyring.ts";
-import {
-  generateCaddyfile,
-  generateSimpleCaddyfile,
-  generateLBConfig,
-  parseCaddyfile,
-  type CaddyRoute,
-} from "../../proxy/caddyfile.ts";
+import { loadConfig, loadResolvedConfig } from "../../config/loader.ts";
 import {
   startCaddy,
   stopCaddy,
@@ -17,7 +9,7 @@ import {
   getCaddyStatus,
   getCaddyLogs,
   installCaddyRemote,
-  uploadCaddyfile,
+  uploadMergedCaddyfile,
   isCaddyInstalled,
 } from "../../proxy/manager.ts";
 import { SSHConnection } from "../../ssh/connection.ts";
@@ -37,51 +29,55 @@ function getConnectionFromServer(srv: Server): SSHConnection {
 
 export class ProxyStartCommand extends BaseCommand {
   name = "start";
-  description = "Démarre Caddy sur les serveurs";
+  description = "Start Caddy on servers";
   options = [
     {
       flags: "--env <env>",
-      description: "Environnement",
-      defaultValue: "staging",
+      description: "Target environment(s), comma-separated (default: all)",
     },
   ];
 
   async run(ctx: CommandContext, opts?: Record<string, unknown>) {
-    const env = (opts?.env as string) ?? "staging";
-    const { config } = loadConfig(ctx.cwd, env);
-    const servers =
-      config.environments[env as "staging" | "test" | "production"]?.servers ??
-      [];
+    const targetEnv = opts?.env as string | undefined;
+    const { config } = loadConfig(ctx.cwd);
+    const environments = targetEnv
+      ? targetEnv
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean)
+      : Object.keys(config.environments);
 
-    const caddyRoutes: CaddyRoute[] = (config.proxy?.routes ?? []).map((r) => ({
-      domain: r.domain,
-      target: r.target,
-      port: r.port,
-      lbPolicy: r.lb_policy as CaddyRoute["lbPolicy"],
-      ssl: r.ssl,
-      headers: r.headers,
-    }));
+    for (const env of environments) {
+      const resolved = loadResolvedConfig(ctx.cwd, env);
+      const servers = resolved.environments[env]?.servers ?? [];
+      if (servers.length === 0) continue;
 
-    const caddyConfig = generateCaddyfile({
-      email: config.proxy?.email,
-      routes: caddyRoutes,
-    });
+      const newRoutes = (resolved.proxy?.routes ?? []).map((r) => ({
+        domain: r.domain,
+        target: r.target,
+        port: r.port,
+        ssl: r.ssl,
+      }));
 
-    for (const srv of servers) {
-      logger.info(`Déploiement Caddy sur ${srv.name} (${srv.host})...`);
-      const conn = getConnectionFromServer(srv);
-      try {
-        await conn.connect();
-        if (!(await isCaddyInstalled(conn))) {
-          await installCaddyRemote(conn);
+      for (const srv of servers) {
+        logger.info(`Deploying Caddy on ${srv.name} (${srv.host})...`);
+        const conn = getConnectionFromServer(srv);
+        try {
+          await conn.connect();
+          if (!(await isCaddyInstalled(conn))) {
+            await installCaddyRemote(conn);
+          }
+          await uploadMergedCaddyfile(conn, newRoutes, {
+            email: resolved.proxy?.email,
+            autoSSL: resolved.proxy?.auto_ssl,
+          });
+          await startCaddy(conn);
+          logger.success(`${srv.name} : Caddy started`);
+        } catch (err) {
+          logger.error(`${srv.name} : ${(err as Error).message}`);
+        } finally {
+          await conn.close();
         }
-        await uploadCaddyfile(conn, caddyConfig);
-        await startCaddy(conn);
-        logger.success(`${srv.name} : Caddy démarré`);
-      } catch (err) {
-        logger.error(`${srv.name} : ${(err as Error).message}`);
-      } finally {
-        await conn.close();
       }
     }
   }
@@ -89,30 +85,36 @@ export class ProxyStartCommand extends BaseCommand {
 
 export class ProxyStopCommand extends BaseCommand {
   name = "stop";
-  description = "Arrête Caddy sur les serveurs";
+  description = "Stop Caddy on servers";
   options = [
     {
       flags: "--env <env>",
-      description: "Environnement",
-      defaultValue: "staging",
+      description: "Target environment(s), comma-separated (default: all)",
     },
   ];
   async run(ctx: CommandContext, opts?: Record<string, unknown>) {
-    const env = (opts?.env as string) ?? "staging";
-    const { config } = loadConfig(ctx.cwd, env);
-    const servers =
-      config.environments[env as "staging" | "test" | "production"]?.servers ??
-      [];
-    for (const srv of servers) {
-      const conn = getConnectionFromServer(srv);
-      try {
-        await conn.connect();
-        await stopCaddy(conn);
-        logger.success(`${srv.name} : arrêté`);
-      } catch (err) {
-        logger.error(`${srv.name} : ${(err as Error).message}`);
-      } finally {
-        await conn.close();
+    const targetEnv = opts?.env as string | undefined;
+    const { config } = loadConfig(ctx.cwd);
+    const environments = targetEnv
+      ? targetEnv
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean)
+      : Object.keys(config.environments);
+    for (const env of environments) {
+      const resolved = loadResolvedConfig(ctx.cwd, env);
+      const servers = resolved.environments[env]?.servers ?? [];
+      for (const srv of servers) {
+        const conn = getConnectionFromServer(srv);
+        try {
+          await conn.connect();
+          await stopCaddy(conn);
+          logger.success(`${srv.name} : stopped`);
+        } catch (err) {
+          logger.error(`${srv.name} : ${(err as Error).message}`);
+        } finally {
+          await conn.close();
+        }
       }
     }
   }
@@ -120,30 +122,89 @@ export class ProxyStopCommand extends BaseCommand {
 
 export class ProxyRestartCommand extends BaseCommand {
   name = "restart";
-  description = "Redémarre Caddy sur les serveurs";
+  description = "Restart Caddy on servers";
   options = [
     {
       flags: "--env <env>",
-      description: "Environnement",
-      defaultValue: "staging",
+      description: "Target environment(s), comma-separated (default: all)",
     },
   ];
   async run(ctx: CommandContext, opts?: Record<string, unknown>) {
-    const env = (opts?.env as string) ?? "staging";
-    const { config } = loadConfig(ctx.cwd, env);
-    const servers =
-      config.environments[env as "staging" | "test" | "production"]?.servers ??
-      [];
-    for (const srv of servers) {
-      const conn = getConnectionFromServer(srv);
-      try {
-        await conn.connect();
-        await restartCaddy(conn);
-        logger.success(`${srv.name} : redémarré`);
-      } catch (err) {
-        logger.error(`${srv.name} : ${(err as Error).message}`);
-      } finally {
-        await conn.close();
+    const targetEnv = opts?.env as string | undefined;
+    const { config } = loadConfig(ctx.cwd);
+    const environments = targetEnv
+      ? targetEnv
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean)
+      : Object.keys(config.environments);
+    for (const env of environments) {
+      const resolved = loadResolvedConfig(ctx.cwd, env);
+      const servers = resolved.environments[env]?.servers ?? [];
+      for (const srv of servers) {
+        const conn = getConnectionFromServer(srv);
+        try {
+          await conn.connect();
+          await restartCaddy(conn);
+          logger.success(`${srv.name} : restarted`);
+        } catch (err) {
+          logger.error(`${srv.name} : ${(err as Error).message}`);
+        } finally {
+          await conn.close();
+        }
+      }
+    }
+  }
+}
+
+export class ProxyReloadCommand extends BaseCommand {
+  name = "reload";
+  description = "Regenerate and reload Caddy config (merge + zero-downtime)";
+  options = [
+    {
+      flags: "--env <env>",
+      description: "Target environment(s), comma-separated (default: all)",
+    },
+  ];
+  async run(ctx: CommandContext, opts?: Record<string, unknown>) {
+    const targetEnv = opts?.env as string | undefined;
+    const { config } = loadConfig(ctx.cwd);
+    const environments = targetEnv
+      ? targetEnv
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean)
+      : Object.keys(config.environments);
+    for (const env of environments) {
+      const resolved = loadResolvedConfig(ctx.cwd, env);
+      const servers = resolved.environments[env]?.servers ?? [];
+      if (servers.length === 0) continue;
+
+      const newRoutes = (resolved.proxy?.routes ?? []).map((r) => ({
+        domain: r.domain,
+        target: r.target,
+        port: r.port,
+        ssl: r.ssl,
+      }));
+
+      for (const srv of servers) {
+        const conn = getConnectionFromServer(srv);
+        try {
+          await conn.connect();
+          if (!(await isCaddyInstalled(conn))) {
+            await installCaddyRemote(conn);
+          }
+          await uploadMergedCaddyfile(conn, newRoutes, {
+            email: resolved.proxy?.email,
+            autoSSL: resolved.proxy?.auto_ssl,
+          });
+          await reloadCaddy(conn);
+          logger.success(`${srv.name} : reloaded`);
+        } catch (err) {
+          logger.error(`${srv.name} : ${(err as Error).message}`);
+        } finally {
+          await conn.close();
+        }
       }
     }
   }
@@ -151,35 +212,41 @@ export class ProxyRestartCommand extends BaseCommand {
 
 export class ProxyStatusCommand extends BaseCommand {
   name = "status";
-  description = "Affiche le statut de Caddy";
+  description = "Show Caddy status";
   options = [
     {
       flags: "--env <env>",
-      description: "Environnement",
-      defaultValue: "staging",
+      description: "Target environment(s), comma-separated (default: all)",
     },
   ];
   async run(ctx: CommandContext, opts?: Record<string, unknown>) {
-    const env = (opts?.env as string) ?? "staging";
-    const { config } = loadConfig(ctx.cwd, env);
-    const servers =
-      config.environments[env as "staging" | "test" | "production"]?.servers ??
-      [];
-    for (const srv of servers) {
-      const conn = getConnectionFromServer(srv);
-      try {
-        await conn.connect();
-        const status = await getCaddyStatus(conn);
-        logger.keyValue(
-          srv.name,
-          status.installed
-            ? `${status.version} — ${status.running ? "RUNNING" : "STOPPED"}`
-            : "Non installé",
-        );
-      } catch (err) {
-        logger.keyValue(srv.name, `ERREUR: ${(err as Error).message}`);
-      } finally {
-        await conn.close();
+    const targetEnv = opts?.env as string | undefined;
+    const { config } = loadConfig(ctx.cwd);
+    const environments = targetEnv
+      ? targetEnv
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean)
+      : Object.keys(config.environments);
+    for (const env of environments) {
+      const resolved = loadResolvedConfig(ctx.cwd, env);
+      const servers = resolved.environments[env]?.servers ?? [];
+      for (const srv of servers) {
+        const conn = getConnectionFromServer(srv);
+        try {
+          await conn.connect();
+          const status = await getCaddyStatus(conn);
+          logger.keyValue(
+            srv.name,
+            status.installed
+              ? `${status.version} — ${status.running ? "RUNNING" : "STOPPED"}`
+              : "Not installed",
+          );
+        } catch (err) {
+          logger.keyValue(srv.name, `ERROR: ${(err as Error).message}`);
+        } finally {
+          await conn.close();
+        }
       }
     }
   }
@@ -187,13 +254,13 @@ export class ProxyStatusCommand extends BaseCommand {
 
 export class ProxyLogsCommand extends BaseCommand {
   name = "logs";
-  description = "Affiche les logs de Caddy";
-  args = [{ name: "server", description: "Nom du serveur", required: true }];
+  description = "Show Caddy logs";
+  args = [{ name: "server", description: "Server name", required: true }];
   options = [
-    { flags: "-f, --follow", description: "Suivre en continu" },
+    { flags: "-f, --follow", description: "Follow output" },
     {
       flags: "-n, --lines <n>",
-      description: "Nombre de lignes",
+      description: "Number of lines",
       defaultValue: "50",
     },
   ];
@@ -212,7 +279,7 @@ export class ProxyLogsCommand extends BaseCommand {
     );
     const srv = allServers.find((s) => s.name === serverName);
     if (!srv) {
-      logger.error(`Serveur "${serverName}" introuvable.`);
+      logger.error(`Server "${serverName}" not found.`);
       process.exit(1);
     }
     const conn = getConnectionFromServer(srv);
@@ -231,7 +298,7 @@ export class ProxyLogsCommand extends BaseCommand {
 
 export class ProxyRouteListCommand extends BaseCommand {
   name = "list";
-  description = "Liste les routes proxy configurées";
+  description = "List configured proxy routes";
   options = [];
   async run(ctx: CommandContext) {
     const { config } = loadConfig(ctx.cwd);
@@ -241,10 +308,10 @@ export class ProxyRouteListCommand extends BaseCommand {
       return;
     }
     if (routes.length === 0) {
-      logger.info("Aucune route configurée.");
+      logger.info("No routes configured.");
       return;
     }
-    logger.section("Routes proxy :");
+    logger.section("Proxy routes:");
     for (const r of routes) {
       logger.keyValue(
         r.domain,
@@ -256,7 +323,7 @@ export class ProxyRouteListCommand extends BaseCommand {
 
 export class ProxyRouteAddCommand extends BaseCommand {
   name = "add";
-  description = "Ajoute une route proxy";
+  description = "Add a proxy route";
   args = [
     { name: "domain", required: true },
     { name: "target", required: true },
@@ -264,7 +331,7 @@ export class ProxyRouteAddCommand extends BaseCommand {
   options = [
     {
       flags: "-p, --port <port>",
-      description: "Port cible",
+      description: "Target port",
       defaultValue: "3000",
     },
   ];
@@ -278,16 +345,14 @@ export class ProxyRouteAddCommand extends BaseCommand {
       logger.error("Usage : dnx proxy route add <domain> <target>");
       process.exit(1);
     }
-    logger.info(`Route ajoutée : ${domain} → ${target}:${opts?.port ?? 3000}`);
-    logger.warn(
-      "Pour persister, ajoutez la route dans votre dnx.yaml → proxy.routes",
-    );
+    logger.info(`Route added: ${domain} → ${target}:${opts?.port ?? 3000}`);
+    logger.warn("To persist, add the route in your dnx.yaml → proxy.routes");
   }
 }
 
 export class ProxyRouteRemoveCommand extends BaseCommand {
   name = "remove";
-  description = "Supprime une route proxy";
+  description = "Remove a proxy route";
   args = [{ name: "domain", required: true }];
   options = [];
   async run(ctx: CommandContext, domain?: string) {
@@ -295,21 +360,21 @@ export class ProxyRouteRemoveCommand extends BaseCommand {
       logger.error("Usage : dnx proxy route remove <domain>");
       process.exit(1);
     }
-    logger.info(`Route "${domain}" marquée pour suppression.`);
-    logger.warn("Retirez-la de votre dnx.yaml → proxy.routes");
+    logger.info(`Route "${domain}" marked for removal.`);
+    logger.warn("Remove it from your dnx.yaml → proxy.routes");
   }
 }
 
 export class ProxySSLStatusCommand extends BaseCommand {
   name = "ssl";
-  description = "Affiche le statut des certificats SSL";
-  options = [{ flags: "--env <env>", description: "Environnement" }];
+  description = "Show SSL certificate status";
+  options = [{ flags: "--env <env>", description: "Environment" }];
   async run(ctx: CommandContext) {
     const { config } = loadConfig(ctx.cwd);
     const routes = config.proxy?.routes ?? [];
-    logger.section("Statut SSL :");
+    logger.section("SSL status:");
     for (const r of routes) {
-      const managed = r.ssl !== false ? "Auto (Let's Encrypt)" : "Désactivé";
+      const managed = r.ssl !== false ? "Auto (Let's Encrypt)" : "Disabled";
       logger.keyValue(r.domain, managed);
     }
   }
@@ -317,12 +382,13 @@ export class ProxySSLStatusCommand extends BaseCommand {
 
 export class ProxyCommand extends BaseCommand {
   name = "proxy";
-  description = "Gère le proxy Caddy (reverse proxy + load balancing + SSL)";
+  description = "Manage Caddy proxy (reverse proxy + load balancing + SSL)";
   options = [];
   subcommands = [
     new ProxyStartCommand(),
     new ProxyStopCommand(),
     new ProxyRestartCommand(),
+    new ProxyReloadCommand(),
     new ProxyStatusCommand(),
     new ProxyLogsCommand(),
     new ProxyRouteListCommand(),

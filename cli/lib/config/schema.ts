@@ -16,8 +16,13 @@ export const BuildStepSchema = z.object({
   env: z.record(z.string()).optional(),
 });
 
-export const BuildSchema = z.object({
+const BuildStepsSchema = z.object({
   steps: z.array(BuildStepSchema).default([]),
+});
+
+export const BuildSchema = z.object({
+  local: BuildStepsSchema.default({ steps: [] }),
+  server: BuildStepsSchema.default({ steps: [] }),
   cache: z
     .object({
       key: z.string().optional(),
@@ -64,14 +69,22 @@ export const ScalingSchema = z.object({
 });
 
 export const WorkloadSchema = z.object({
-  name: z.string().min(1),
+  name: z
+    .string()
+    .min(1)
+    .regex(/^[a-z0-9-]+$/, {
+      message:
+        "Workload name must be lowercase alphanumeric with hyphens only (no spaces, uppercase, or special characters)",
+    }),
   type: WorkloadTypeSchema,
   image: z.string().optional(),
   repo_url: z.string().optional(),
   branch: z.string().default("main"),
   driver: DriverSchema,
   start_cmd: z.string().optional(),
-  ports: z.array(z.number().int().min(1).max(65535)).default([]),
+  ports: z
+    .array(z.union([z.number().int().min(1).max(65535), z.string()]))
+    .default([]),
   workdir: z.string().default("/app"),
   volumes: z.array(z.string()).default([]),
   restart: z
@@ -83,7 +96,7 @@ export const WorkloadSchema = z.object({
   dockerfile: z.string().optional(),
   registry: z.string().optional(),
   oci: OciSchema.optional(),
-  build: BuildSchema.default({ steps: [] }),
+  build: BuildSchema.default({}),
   health: HealthCheckSchema.optional(),
   scaling: ScalingSchema.optional(),
   sync: z
@@ -91,14 +104,7 @@ export const WorkloadSchema = z.object({
       source: z.string().default("."),
       exclude: z
         .array(z.string())
-        .default([
-          ".dnax",
-          ".devbox",
-          "node_modules",
-          ".git",
-          ".flox",
-          ".cursor",
-        ]),
+        .default([".dnax", ".devbox", "node_modules", ".git", ".cursor"]),
       force: z.boolean().default(false),
     })
     .default({}),
@@ -106,7 +112,21 @@ export const WorkloadSchema = z.object({
 
 export const ProxyRouteSchema = z.object({
   domain: z.string().min(1),
-  target: z.string().min(1),
+  target: z
+    .string()
+    .min(1)
+    .refine(
+      (v) => {
+        const looksLikeIp = /^[\d.]+$/.test(v);
+        if (looksLikeIp) {
+          return /^((25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)$/.test(
+            v,
+          );
+        }
+        return /^[\w.-]+$/.test(v);
+      },
+      { message: "target must be a valid IP or hostname" },
+    ),
   port: z.number().int().min(1).max(65535),
   lb_policy: z
     .enum(["round_robin", "least_conn", "first", "ip_hash"])
@@ -195,6 +215,12 @@ export const DnxConfigSchema = z.object({
       "At least one environment required",
     ),
   workloads: z.array(WorkloadSchema).min(1),
+  deploy: z
+    .object({
+      tag: z.string().optional(),
+      strategy: z.enum(["rolling", "blue-green", "canary"]).optional(),
+    })
+    .optional(),
   proxy: ProxySchema.optional(),
   health: HealthGlobalSchema.default({}),
   scaling: z

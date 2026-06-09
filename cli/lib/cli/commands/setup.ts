@@ -1,9 +1,8 @@
 import { BaseCommand, type CommandContext } from "../command.ts";
 import { logger, spinner } from "../output.ts";
-import { loadConfig } from "../../config/loader.ts";
+import { loadConfig, loadResolvedConfig } from "../../config/loader.ts";
 import type { Server } from "../../config/schema.ts";
 import { SSHConnection } from "../../ssh/connection.ts";
-import { SSHPool } from "../../ssh/pool.ts";
 
 const PACKAGES = [
   {
@@ -87,21 +86,19 @@ const PACKAGES = [
 
 export class SetupCommand extends BaseCommand {
   name = "setup";
-  description = "Installe les dépendances sur les serveurs distants";
+  description = "Install dependencies on remote servers";
   args = [
     {
       name: "target",
-      description:
-        "Nom du serveur, 'all' pour tous les environnements, ou rien pour l'environnement courant",
+      description: "Server name, 'all' for all servers (default: all)",
     },
   ];
   options = [
     {
       flags: "--env <env>",
-      description: "Environnement cible",
-      defaultValue: "staging",
+      description: "Target environment(s), comma-separated (default: all)",
     },
-    { flags: "--check-only", description: "Vérifie sans installer" },
+    { flags: "--check-only", description: "Check without installing" },
   ];
 
   async run(
@@ -109,23 +106,52 @@ export class SetupCommand extends BaseCommand {
     target?: string,
     opts?: Record<string, unknown>,
   ) {
-    const env = (opts?.env as string) ?? "staging";
+    const targetEnv = opts?.env as string | undefined;
     const checkOnly = !!opts?.["check-only"];
-    const { config } = loadConfig(ctx.cwd, env);
+    const { config } = loadConfig(ctx.cwd);
 
-    let allServers: Server[];
+    // Determine environments
+    const environments = targetEnv
+      ? targetEnv
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean)
+      : Object.keys(config.environments);
 
-    if (target === "all") {
-      // All servers across all environments
-      allServers = Object.values(config.environments).flatMap((e) => e.servers);
-    } else if (target) {
-      // Specific server by name
-      allServers = Object.values(config.environments)
-        .flatMap((e) => e.servers)
-        .filter((s) => s.name === target);
-    } else {
-      // Current environment only
-      allServers = config.environments[env]?.servers ?? [];
+    if (environments.length === 0) {
+      logger.error("No environments defined in config.");
+      process.exit(1);
+    }
+
+    // Validate environments exist
+    if (targetEnv) {
+      const unknown = environments.filter((e) => !(e in config.environments));
+      if (unknown.length > 0) {
+        logger.error(
+          `Unknown environment(s): ${unknown.join(", ")}. Available: ${Object.keys(config.environments).join(", ")}`,
+        );
+        process.exit(1);
+      }
+    }
+
+    // Collect servers per environment with resolved variables
+    interface ServerWithEnv extends Server {
+      _env: string;
+    }
+    let allServers: ServerWithEnv[] = [];
+
+    for (const env of environments) {
+      const resolved = loadResolvedConfig(ctx.cwd, env);
+      const envServers = resolved.environments[env]?.servers ?? [];
+
+      if (target === "all") {
+        allServers.push(...envServers.map((s) => ({ ...s, _env: env })));
+      } else if (target) {
+        const match = envServers.find((s) => s.name === target);
+        if (match) allServers.push({ ...match, _env: env });
+      } else {
+        allServers.push(...envServers.map((s) => ({ ...s, _env: env })));
+      }
     }
 
     if (allServers.length === 0) {
@@ -135,7 +161,10 @@ export class SetupCommand extends BaseCommand {
       process.exit(1);
     }
 
-    logger.title(`Setup : ${allServers.length} server(s) [${env}]`);
+    const envLabel = targetEnv ?? environments.join(", ");
+    logger.title(`Setup : ${allServers.length} server(s) [${envLabel}]`);
+
+    let failures = 0;
 
     for (const srv of allServers) {
       logger.section(`${srv.name} (${srv.host})`);
@@ -146,6 +175,8 @@ export class SetupCommand extends BaseCommand {
         username: srv.user ?? "root",
         password: srv.password,
       });
+
+      let serverFailed = false;
 
       try {
         await conn.connect();
@@ -161,6 +192,7 @@ export class SetupCommand extends BaseCommand {
 
           if (checkOnly) {
             spin.warn(`${pkg.name} : NOT INSTALLED`);
+            serverFailed = true;
             continue;
           }
 
@@ -173,6 +205,7 @@ export class SetupCommand extends BaseCommand {
             spin.succeed(`${pkg.name} : installed ✓`);
           } else {
             spin.fail(`${pkg.name} : install failed`);
+            serverFailed = true;
             if (installResult.stderr) {
               logger.error(
                 `  ${installResult.stderr.split("\n").slice(0, 2).join(" | ")}`,
@@ -182,9 +215,19 @@ export class SetupCommand extends BaseCommand {
         }
       } catch (err) {
         logger.error(`Connection failed : ${(err as Error).message}`);
+        serverFailed = true;
       } finally {
         await conn.close();
       }
+
+      if (serverFailed) failures++;
+    }
+
+    if (failures > 0) {
+      logger.error(
+        `\nSetup failed on ${failures}/${allServers.length} server(s).`,
+      );
+      process.exit(1);
     }
 
     logger.success("\nSetup complete.");

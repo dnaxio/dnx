@@ -15,10 +15,10 @@ export class DnxProgram {
       .description(
         "🚀 DNX Deploy — Multi-server deployment tool with flox.dev & Docker/OCI",
       )
-      .version(VERSION, "-v, --version", "Affiche la version")
-      .option("--verbose", "Mode verbeux")
-      .option("-q, --quiet", "Mode silencieux")
-      .option("--json", "Sortie JSON (machine-readable)")
+      .version(VERSION, "-v, --version", "Show version")
+      .option("--verbose", "Verbose mode")
+      .option("-q, --quiet", "Quiet mode")
+      .option("--json", "JSON output (machine-readable)")
       .configureHelp({
         sortSubcommands: true,
         sortOptions: true,

@@ -3,15 +3,15 @@ import { logger } from "../output.ts";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
-import type { DnxConfig } from "../../config/schema.ts";
+import { DnxConfigSchema, type DnxConfig } from "../../config/schema.ts";
 
 export class ConfigValidateCommand extends BaseCommand {
   name = "validate";
-  description = "Valide le fichier .dnax/dnx.yaml";
+  description = "Validate .dnax/dnx.yaml file";
   options = [
     {
       flags: "-f, --file <path>",
-      description: "Chemin vers le dnx.yaml",
+      description: "Path to dnx.yaml",
       defaultValue: ".dnax/dnx.yaml",
     },
   ];
@@ -21,7 +21,7 @@ export class ConfigValidateCommand extends BaseCommand {
     const filePath = resolve(ctx.cwd, fileName);
 
     if (!existsSync(filePath)) {
-      logger.error(`Fichier introuvable : ${filePath}`);
+      logger.error(`File not found: ${filePath}`);
       process.exit(1);
     }
 
@@ -30,19 +30,19 @@ export class ConfigValidateCommand extends BaseCommand {
       const parsed = parseYaml(raw);
 
       if (!parsed || typeof parsed !== "object") {
-        logger.error("Le fichier YAML est vide ou invalide.");
+        logger.error("The YAML file is empty or invalid.");
         process.exit(1);
       }
 
       if ((parsed as Record<string, unknown>).version !== "1") {
         logger.warn(
-          `Version "${(parsed as Record<string, unknown>).version}" — "1" attendue.`,
+          `Version "${(parsed as Record<string, unknown>).version}" — "1" expected.`,
         );
       }
 
       // Basic structure validation
       const cfg = parsed as Record<string, unknown>;
-      const checks: { field: string; valid: boolean }[] = [
+      const checks: { field: string; valid: boolean; detail?: string }[] = [
         { field: "version", valid: cfg.version === "1" },
         {
           field: "name",
@@ -56,29 +56,88 @@ export class ConfigValidateCommand extends BaseCommand {
         { field: "workloads", valid: Array.isArray(cfg.workloads) },
       ];
 
-      logger.section(`Validation de ${fileName}`);
+      // Validate proxy routes if present
+      const proxyRoutes = (cfg.proxy as Record<string, unknown>)?.routes as
+        | Array<Record<string, unknown>>
+        | undefined;
+      if (proxyRoutes && Array.isArray(proxyRoutes)) {
+        const invalidRoutes: string[] = [];
+        const ipRegex =
+          /^((25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)$/;
+        for (const r of proxyRoutes) {
+          const target = r.target as string;
+          // If it looks like an IP (starts with digit, contains dots), require valid IP
+          const looksLikeIp = /^[\d.]+$/.test(target);
+          if (looksLikeIp && !ipRegex.test(target)) {
+            invalidRoutes.push(
+              `  • ${r.domain}: invalid IP "${target}" (use valid IPv4 like 127.0.0.1)`,
+            );
+          } else if (!looksLikeIp && !/^[\w.-]+$/.test(target)) {
+            invalidRoutes.push(
+              `  • ${r.domain}: invalid target "${target}" (must be IP or hostname)`,
+            );
+          }
+          const port = r.port as number;
+          if (typeof port !== "number" || port < 1 || port > 65535) {
+            invalidRoutes.push(
+              `  • ${r.domain}: invalid port ${port} (must be 1-65535)`,
+            );
+          }
+        }
+        if (invalidRoutes.length > 0) {
+          logger.error("Invalid proxy routes:");
+          for (const msg of invalidRoutes) {
+            logger.error(msg);
+          }
+          process.exit(1);
+        }
+      }
+
+      // Also validate with Zod for full schema check
+      const zodResult = DnxConfigSchema.safeParse(parsed);
+      if (zodResult.success) {
+        checks.push({ field: "proxy", valid: true });
+      } else {
+        const proxyIssue = zodResult.error.issues.find(
+          (i) => i.path[0] === "proxy",
+        );
+        if (proxyIssue) {
+          checks.push({
+            field: "proxy",
+            valid: false,
+            detail: proxyIssue.message,
+          });
+        } else if (cfg.proxy) {
+          checks.push({ field: "proxy", valid: true });
+        }
+      }
+
+      logger.section(`Validating ${fileName}`);
       let allValid = true;
       for (const check of checks) {
         const icon = check.valid ? "✔" : "✖";
-        logger[check.valid ? "success" : "error"](`${icon} ${check.field}`);
+        const detail = check.detail ? ` (${check.detail})` : "";
+        logger[check.valid ? "success" : "error"](
+          `${icon} ${check.field}${detail}`,
+        );
         if (!check.valid) allValid = false;
       }
 
       if (!allValid) {
-        logger.error("\nDes champs obligatoires sont manquants ou invalides.");
+        logger.error("\nRequired fields are missing or invalid.");
         process.exit(1);
       }
 
-      logger.success(`\n${fileName} est valide !`);
-      logger.info(`Projet : ${cfg.name}`);
+      logger.success(`\n${fileName} is valid!`);
+      logger.info(`Project: ${cfg.name}`);
       const envs = Object.keys(cfg.environments as Record<string, unknown>);
-      logger.info(`Environnements : ${envs.join(", ")}`);
+      logger.info(`Environments: ${envs.join(", ")}`);
       const apps = cfg.workloads as Array<Record<string, unknown>>;
       logger.info(
-        `Applications : ${apps.length} (${apps.map((a) => a.name).join(", ")})`,
+        `Applications: ${apps.length} (${apps.map((a) => a.name).join(", ")})`,
       );
     } catch (err) {
-      logger.error(`Erreur de parsing YAML : ${(err as Error).message}`);
+      logger.error(`YAML parse error: ${(err as Error).message}`);
       process.exit(1);
     }
   }
@@ -86,14 +145,14 @@ export class ConfigValidateCommand extends BaseCommand {
 
 export class ConfigShowCommand extends BaseCommand {
   name = "show";
-  description = "Affiche la configuration résolue";
+  description = "Show resolved configuration";
   options = [
     {
       flags: "-f, --file <path>",
-      description: "Chemin vers le dnx.yaml",
+      description: "Path to dnx.yaml",
       defaultValue: ".dnax/dnx.yaml",
     },
-    { flags: "--env <env>", description: "Environnement à afficher" },
+    { flags: "--env <env>", description: "Environment to display" },
   ];
 
   async run(ctx: CommandContext, opts?: Record<string, unknown>) {
@@ -101,7 +160,7 @@ export class ConfigShowCommand extends BaseCommand {
     const filePath = resolve(ctx.cwd, fileName);
 
     if (!existsSync(filePath)) {
-      logger.error(`Fichier introuvable : ${filePath}`);
+      logger.error(`File not found: ${filePath}`);
       process.exit(1);
     }
 
@@ -115,7 +174,7 @@ export class ConfigShowCommand extends BaseCommand {
 
     const cfg = parsed as Record<string, unknown>;
     logger.title(cfg.name as string);
-    logger.section("Environnements :");
+    logger.section("Environments:");
     const envs = cfg.environments as Record<string, Record<string, unknown>>;
     const targetEnv = (opts?.env as string) ?? null;
 
@@ -129,11 +188,11 @@ export class ConfigShowCommand extends BaseCommand {
         }
       }
       if (envCfg.deploy_strategy) {
-        console.log(`    Stratégie : ${envCfg.deploy_strategy}`);
+        console.log(`    Strategy: ${envCfg.deploy_strategy}`);
       }
     }
 
-    logger.section("Applications :");
+    logger.section("Applications:");
     const apps = cfg.workloads as Array<Record<string, unknown>>;
     for (const app of apps) {
       const driver = app.driver as string;
@@ -147,15 +206,15 @@ export class ConfigShowCommand extends BaseCommand {
 
 export class ConfigDiffCommand extends BaseCommand {
   name = "diff";
-  description = "Affiche les différences entre deux environnements";
+  description = "Show differences between two environments";
   args = [
-    { name: "env1", description: "Premier environnement", required: true },
-    { name: "env2", description: "Second environnement", required: true },
+    { name: "env1", description: "First environment", required: true },
+    { name: "env2", description: "Second environment", required: true },
   ];
   options = [
     {
       flags: "-f, --file <path>",
-      description: "Chemin vers le dnx.yaml",
+      description: "Path to dnx.yaml",
       defaultValue: ".dnax/dnx.yaml",
     },
   ];
@@ -170,13 +229,13 @@ export class ConfigDiffCommand extends BaseCommand {
     const filePath = resolve(ctx.cwd, fileName);
 
     if (!existsSync(filePath)) {
-      logger.error(`Fichier introuvable : ${filePath}`);
+      logger.error(`File not found: ${filePath}`);
       process.exit(1);
     }
 
     if (!env1 || !env2) {
       logger.error("Usage : dnx config diff <env1> <env2>");
-      logger.info("Exemple : dnx config diff staging production");
+      logger.info("Example: dnx config diff staging production");
       process.exit(1);
     }
 
@@ -185,11 +244,11 @@ export class ConfigDiffCommand extends BaseCommand {
     const envs = parsed.environments as Record<string, Record<string, unknown>>;
 
     if (!envs[env1]) {
-      logger.error(`Environnement "${env1}" introuvable.`);
+      logger.error(`Environment "${env1}" not found.`);
       process.exit(1);
     }
     if (!envs[env2]) {
-      logger.error(`Environnement "${env2}" introuvable.`);
+      logger.error(`Environment "${env2}" not found.`);
       process.exit(1);
     }
 
@@ -203,7 +262,7 @@ export class ConfigDiffCommand extends BaseCommand {
     }
 
     if (diff.length === 0) {
-      logger.success("Les deux environnements sont identiques.");
+      logger.success("Both environments are identical.");
       return;
     }
 
@@ -267,7 +326,7 @@ function computeDiff(
 
 export class ConfigCommand extends BaseCommand {
   name = "config";
-  description = "Gère la configuration DNX";
+  description = "Manage DNX configuration";
   options = [];
   subcommands = [
     new ConfigValidateCommand(),

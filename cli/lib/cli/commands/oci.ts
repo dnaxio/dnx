@@ -26,18 +26,18 @@ function getConn(host: string, port = 22, user = "root"): SSHConnection {
 
 export class OciBuildCommand extends BaseCommand {
   name = "build";
-  description = "Build une image OCI (Docker/Podman)";
-  args = [{ name: "app", description: "Nom de l'application", required: true }];
+  description = "Build an OCI image (Docker/Podman)";
+  args = [{ name: "app", description: "Application name", required: true }];
   options = [
     {
       flags: "--tag <tag>",
-      description: "Tag de l'image",
+      description: "Image tag",
       defaultValue: "latest",
     },
-    { flags: "--no-cache", description: "Ignore le cache" },
+    { flags: "--no-cache", description: "Ignore cache" },
     {
       flags: "--platform <platform>",
-      description: "Plateforme (linux/amd64, linux/arm64)",
+      description: "Platform (linux/amd64, linux/arm64)",
     },
   ];
 
@@ -54,15 +54,15 @@ export class OciBuildCommand extends BaseCommand {
     const { config } = loadConfig(ctx.cwd);
     const app = config.workloads.find((a) => a.name === appName);
     if (!app) {
-      logger.error(`Application "${appName}" introuvable.`);
+      logger.error(`Application "${appName}" not found.`);
       process.exit(1);
     }
 
     const dockerfile = app.dockerfile ?? findDockerfile(ctx.cwd);
     if (!dockerfile && !hasDockerfile(ctx.cwd)) {
-      logger.info("Aucun Dockerfile trouvé. Génération automatique...");
+      logger.info("No Dockerfile found. Auto-generating...");
       const gen = generateDockerfileIfMissing(ctx.cwd);
-      logger.success(`Dockerfile généré (${gen.type})`);
+      logger.success(`Dockerfile generated (${gen.type})`);
     }
 
     const registry = app.registry ?? `${appName}`;
@@ -85,12 +85,12 @@ export class OciBuildCommand extends BaseCommand {
 
 export class OciPushCommand extends BaseCommand {
   name = "push";
-  description = "Push une image vers un registry";
-  args = [{ name: "app", description: "Nom de l'application", required: true }];
+  description = "Push an image to a registry";
+  args = [{ name: "app", description: "Application name", required: true }];
   options = [
     { flags: "--tag <tag>", description: "Tag", defaultValue: "latest" },
-    { flags: "--registry <url>", description: "URL du registry" },
-    { flags: "-u, --username <user>", description: "Username registry" },
+    { flags: "--registry <url>", description: "Registry URL" },
+    { flags: "-u, --username <user>", description: "Registry username" },
   ];
 
   async run(
@@ -105,7 +105,7 @@ export class OciPushCommand extends BaseCommand {
     const { config } = loadConfig(ctx.cwd);
     const app = config.workloads.find((a) => a.name === appName);
     if (!app) {
-      logger.error(`Application "${appName}" introuvable.`);
+      logger.error(`Application "${appName}" not found.`);
       process.exit(1);
     }
 
@@ -123,10 +123,10 @@ export class OciPushCommand extends BaseCommand {
 
 export class OciPullCommand extends BaseCommand {
   name = "pull";
-  description = "Pull une image depuis un registry sur un serveur";
+  description = "Pull an image from a registry to a server";
   args = [
-    { name: "app", description: "Nom de l'application", required: true },
-    { name: "server", description: "Serveur cible", required: true },
+    { name: "app", description: "Application name", required: true },
+    { name: "server", description: "Target server", required: true },
   ];
   async run(ctx: CommandContext, appName?: string, serverName?: string) {
     if (!appName || !serverName) {
@@ -139,7 +139,7 @@ export class OciPullCommand extends BaseCommand {
     );
     const srv = allServers.find((s) => s.name === serverName);
     if (!srv) {
-      logger.error(`Serveur "${serverName}" introuvable.`);
+      logger.error(`Server "${serverName}" not found.`);
       process.exit(1);
     }
     const app = config.workloads.find((a) => a.name === appName);
@@ -158,8 +158,8 @@ export class OciPullCommand extends BaseCommand {
 
 export class OciImagesCommand extends BaseCommand {
   name = "images";
-  description = "Liste les conteneurs OCI sur un serveur";
-  args = [{ name: "server", description: "Serveur cible", required: true }];
+  description = "List OCI containers on a server";
+  args = [{ name: "server", description: "Target server", required: true }];
   async run(ctx: CommandContext, serverName?: string) {
     if (!serverName) {
       logger.error("Usage : dnx oci images <server>");
@@ -171,7 +171,7 @@ export class OciImagesCommand extends BaseCommand {
     );
     const srv = allServers.find((s) => s.name === serverName);
     if (!srv) {
-      logger.error(`Serveur "${serverName}" introuvable.`);
+      logger.error(`Server "${serverName}" not found.`);
       process.exit(1);
     }
     const conn = getConn(srv.host, srv.port ?? 22, srv.user ?? "root");
@@ -187,11 +187,9 @@ export class OciImagesCommand extends BaseCommand {
 
 export class OciCleanupCommand extends BaseCommand {
   name = "cleanup";
-  description = "Nettoie les anciennes images et conteneurs";
-  args = [{ name: "server", description: "Serveur cible", required: true }];
-  options = [
-    { flags: "--keep <n>", description: "Garder les N dernières images" },
-  ];
+  description = "Clean up old images and containers";
+  args = [{ name: "server", description: "Target server", required: true }];
+  options = [{ flags: "--keep <n>", description: "Keep the last N images" }];
   async run(ctx: CommandContext, serverName?: string) {
     if (!serverName) {
       logger.error("Usage : dnx oci cleanup <server>");
@@ -203,7 +201,7 @@ export class OciCleanupCommand extends BaseCommand {
     );
     const srv = allServers.find((s) => s.name === serverName);
     if (!srv) {
-      logger.error(`Serveur "${serverName}" introuvable.`);
+      logger.error(`Server "${serverName}" not found.`);
       process.exit(1);
     }
     const conn = getConn(srv.host, srv.port ?? 22, srv.user ?? "root");
@@ -218,7 +216,7 @@ export class OciCleanupCommand extends BaseCommand {
 
 export class OciCommand extends BaseCommand {
   name = "oci";
-  description = "Gère les images et conteneurs OCI (Docker/Podman)";
+  description = "Manage OCI images and containers (Docker/Podman)";
   options = [];
   subcommands = [
     new OciBuildCommand(),
