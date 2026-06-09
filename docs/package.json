@@ -1,0 +1,16 @@
+{
+  "name": "docs",
+  "scripts": {
+    "dev": "TMPDIR=/tmp nuxt dev",
+    "build": "nuxt build"
+  },
+  "dependencies": {
+    "@comark/nuxt": "0.4.0",
+    "@nuxt/fonts": "0.14.0",
+    "@nuxt/icon": "2.2.3",
+    "@nuxtjs/i18n": "^10.1.1",
+    "better-sqlite3": "^12.10.0",
+    "docus": "latest",
+    "nuxt": "4.4.7"
+  }
+}

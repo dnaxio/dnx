@@ -1,0 +1,33 @@
+.env
+
+# DNX
+.dnx/
+.dnax/
+tests
+# Dependencies
+node_modules/
+.agents
+memo
+AGENTS.md
+
+# Build output
+dist/
+.cli/
+
+# Devbox
+.devbox/
+
+# Flox
+.flox/
+.run/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
