@@ -1,9 +1,9 @@
 {
   "name": "@dnax/dnx",
-  "version": "0.0.1-apha-1",
+  "version": "0.0.1",
   "module": "index.ts",
   "type": "module",
-  "private": true,
+  "private": false,
   "bin": {
     "dnx": "lib/bin.ts"
   },
