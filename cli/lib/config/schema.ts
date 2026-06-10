@@ -37,9 +37,7 @@ export const OciSchema = z.object({
   volumes: z.array(z.string()).default([]),
 });
 
-export const DriverSchema = z
-  .enum(["flox", "docker", "devbox", "podman"])
-  .default("flox");
+export const DriverSchema = z.enum(["flox", "docker"]).default("flox");
 
 export const WorkloadTypeSchema = z
   .enum(["web", "api", "database", "cache", "worker", "cron", "other"])

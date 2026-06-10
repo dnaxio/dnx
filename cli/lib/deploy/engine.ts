@@ -271,7 +271,7 @@ async function deployToServers(
   ]
     .filter((f): f is string => f !== null)
     .join(" ");
-  const wd = workDir ?? (driver === "devbox" ? "/code" : "/app");
+  const wd = workDir ?? "/app";
 
   const { execSync } = require("node:child_process");
   const {
@@ -284,13 +284,7 @@ async function deployToServers(
   const cwd = process.cwd();
   const sourceDir = require("node:path").resolve(cwd, source);
   // Merge excludes: defaults + .gitignore + user config
-  const defaultExcludes = [
-    ".dnax",
-    ".devbox",
-    "node_modules",
-    ".git",
-    ".cursor",
-  ];
+  const defaultExcludes = [".dnax", "node_modules", ".git", ".cursor"];
   const gitignorePatterns: string[] = [];
   const sourcePath = require("node:path").resolve(cwd, source);
   const gitignoreCandidates = [
@@ -410,7 +404,7 @@ async function deployToServers(
     }
   }
 
-  if (driver === "flox" || driver === "devbox") {
+  if (driver === "flox" || driver === "docker") {
     if (driver === "flox") {
       // Check if flox environment changed
       const floxHashFile = join(cwd, ".dnx", "hash", `flox-${workloadName}`);
@@ -438,7 +432,7 @@ async function deployToServers(
         const buildResults = await pool.executeAll(buildCmd);
         for (const r of buildResults) {
           if (r.stdout.includes("BUILD_OK")) {
-            floxSpin.succeed(`    ${r.host} : image built`);
+            floxSpin.succeed(`${r.host} : image built`);
           } else {
             floxSpin.fail(`  ${r.host} : build failed`);
             if (r.stdout) logger.error(`    ${r.stdout.trim()}`);
@@ -451,62 +445,6 @@ async function deployToServers(
         try {
           mkdirSync(join(cwd, ".dnx", "hash"), { recursive: true });
           writeFileSync(floxHashFile, floxHash, "utf-8");
-        } catch {}
-      }
-    }
-
-    if (driver === "devbox") {
-      // Check if devbox environment changed
-      const devboxHashFile = join(
-        cwd,
-        ".dnx",
-        "hash",
-        `devbox-${workloadName}`,
-      );
-      let devboxHash = "";
-      try {
-        devboxHash = execSync(
-          `cat devbox.json devbox.lock 2>/dev/null | md5sum | cut -d' ' -f1`,
-          {
-            stdio: "pipe",
-            cwd: sourceDir,
-          },
-        )
-          .toString()
-          .trim();
-      } catch {
-        devboxHash = Date.now().toString();
-      }
-      const previousDevboxHash = existsSync(devboxHashFile)
-        ? readFileSync(devboxHashFile, "utf-8").trim()
-        : "";
-
-      if (previousDevboxHash && devboxHash === previousDevboxHash) {
-        logger.info("devbox unchanged — skipping build");
-      } else {
-        const devboxSpin = spinner(`Building image ${workloadName}:latest...`);
-        const imgTag = tag || "latest";
-        const buildCmd = `if docker image inspect ${workloadName}:${imgTag} >/dev/null 2>&1; then echo "BUILD_SKIPPED"; else cd $HOME/.dnx/workloads/${workloadName}/current && devbox generate dockerfile && DOCKER_BUILDKIT=1 docker build --cache-from ${workloadName}:latest -t ${workloadName}:${imgTag} . && echo "BUILD_OK" || echo "BUILD_FAILED"; fi`;
-        const buildResults = await pool.executeAll(buildCmd);
-        for (const r of buildResults) {
-          if (r.stdout.includes("BUILD_OK")) {
-            devboxSpin.succeed(`    ${r.host} : image built`);
-          } else if (r.stdout.includes("BUILD_SKIPPED")) {
-            devboxSpin.succeed(
-              `    ${r.host} : image already exists — skipping build`,
-            );
-          } else {
-            devboxSpin.fail(`  ${r.host} : build failed`);
-            if (r.stdout) logger.error(`    ${r.stdout.trim()}`);
-            if (r.stderr) logger.error(`    ${r.stderr.trim()}`);
-            throw new Error(`Build failed on ${r.host}`);
-          }
-        }
-
-        // Save hash
-        try {
-          mkdirSync(join(cwd, ".dnx", "hash"), { recursive: true });
-          writeFileSync(devboxHashFile, devboxHash, "utf-8");
         } catch {}
       }
     }

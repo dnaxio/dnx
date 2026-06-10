@@ -8,8 +8,7 @@ schema-version = "1.12.0"
 ## -------------------------------------------------------------------
 [install]
 bun.pkg-path = "bun"
-nodejs.pkg-path = "nodejs"
-node-gyp.pkg-path = "node-gyp"
+serve.pkg-path = "serve"
 # gum.pkg-path = "gum"
 # gum.version = "^0.14.5"
 
@@ -27,7 +26,7 @@ node-gyp.pkg-path = "node-gyp"
 ## -------------------------------------------------------------------
 [hook]
  on-activate = '''
- bunx serve .output/public
+ serve .output/public
  '''
 
 
@@ -53,7 +52,7 @@ node-gyp.pkg-path = "node-gyp"
 ##  $ flox activate --start-services  <- Activates & starts all
 ## ------------------------------------------------------------------
 [services]
-# myservice.command = "python3 -m http.server"
+
 
 
 ## Include ----------------------------------------------------------
